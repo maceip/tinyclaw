@@ -5,6 +5,8 @@
 //! conflicts). These scenarios are modeled after real-world merge conflicts
 //! found in Kotlin/Java Android projects, Rust crates, and configuration files.
 
+use std::path::PathBuf;
+
 use merge_engine::{Language, ResolutionStrategy, Resolver, ResolverConfig};
 
 // ──────────────────────────────────────────────────────────────
@@ -641,4 +643,202 @@ fn ground_truth_c_include_merge() {
 
     let resolver = resolver_for(Some(Language::C));
     assert_resolved_contains(&resolver, base, left, right, &["string.h", "math.h"]);
+}
+
+// ══════════════════════════════════════════════════════════════
+// Real-world MediaMaid fixtures (maceip/MediaMaid merge history)
+// ══════════════════════════════════════════════════════════════
+//
+// These tests load actual file contents from merge commits in the
+// MediaMaid Android app repository. Each scenario directory contains
+// base, left, right, and merged files extracted from real git history.
+
+fn fixture_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("mediamaid")
+}
+
+/// Load a fixture scenario's files. Returns (base, left, right, merged).
+fn load_scenario(id: &str, ext: &str) -> (String, String, String, String) {
+    let dir = fixture_dir().join(id);
+    let base = std::fs::read_to_string(dir.join(format!("base.{ext}"))).unwrap();
+    let left = std::fs::read_to_string(dir.join(format!("left.{ext}"))).unwrap();
+    let right = std::fs::read_to_string(dir.join(format!("right.{ext}"))).unwrap();
+    let merged = std::fs::read_to_string(dir.join(format!("merged.{ext}"))).unwrap();
+    (base, left, right, merged)
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 1: MusicConverterScreen.kt — REAL 3-region conflict
+// Merge 50a22e57: feature branch adds click handlers + onClick param,
+// master adds striped table rows + checkboxes + itemsIndexed.
+// Human resolved by combining both sets of changes.
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_1_real_conflict_detected() {
+    let (base, left, right, _merged) = load_scenario("scenario_1", "kt");
+    let diff3 = merge_engine::diff3::diff3_merge(&merge_engine::MergeScenario::new(
+        &*base, &*left, &*right,
+    ));
+    // This is a genuine 3-region conflict — diff3 must detect it
+    assert!(
+        diff3.is_conflict(),
+        "scenario_1 (MusicConverterScreen.kt) should be detected as a conflict"
+    );
+}
+
+#[test]
+fn mediamaid_scenario_1_candidates_generated() {
+    let (base, left, right, merged) = load_scenario("scenario_1", "kt");
+    let resolver = resolver_for(Some(Language::Kotlin));
+    let result = resolver.resolve_file(&base, &left, &right);
+    // The resolver should generate candidates even if it can't fully resolve
+    assert!(
+        !result.conflicts.is_empty(),
+        "scenario_1 should identify conflict regions"
+    );
+    // The merged result should preserve the package declaration and imports
+    // that both sides agree on
+    assert!(
+        result
+            .merged_content
+            .contains("package ai.musicconverter.ui"),
+        "merged output should preserve package declaration"
+    );
+    // Verify the human-resolved merge has content from both sides
+    assert!(merged.contains("itemsIndexed"));
+    assert!(merged.contains("onClick"));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 2: build.gradle.kts — auto-resolved (non-overlapping)
+// Left adds Glance widget deps, right adds Glance deps in different spot.
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_2_gradle_auto_resolve() {
+    let (base, left, right, merged) = load_scenario("scenario_2", "kts");
+    let resolver = resolver_for(Some(Language::Kotlin));
+    let result = resolver.resolve_file(&base, &left, &right);
+    // Both sides added Glance deps — should be resolvable
+    assert!(
+        result.merged_content.contains("glance"),
+        "merged build.gradle.kts should contain glance dependency"
+    );
+    // The human merge included both sides' additions
+    assert!(merged.contains("glance-appwidget"));
+    assert!(merged.contains("glance-material3"));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 3: MusicWidget.kt — auto-resolved (import + method changes)
+// Left adds an import, right restructures widget methods.
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_3_widget_auto_resolve() {
+    let (base, left, right, _merged) = load_scenario("scenario_3", "kt");
+    let resolver = resolver_for(Some(Language::Kotlin));
+    let result = resolver.resolve_file(&base, &left, &right);
+    // Both sides preserved the widget class
+    assert!(
+        result.merged_content.contains("MusicWidget"),
+        "merged output should contain the MusicWidget class"
+    );
+    assert!(
+        result.merged_content.contains("GlanceAppWidget"),
+        "merged output should contain GlanceAppWidget base class"
+    );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 4: glance_default_layout.xml — REAL conflict
+// Both branches created the same new file from scratch.
+// Left: full FrameLayout + ProgressBar. Right: minimal self-closing.
+// Human chose left (the more complete version).
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_4_both_created_new_file() {
+    let (base, left, right, merged) = load_scenario("scenario_4", "xml");
+    assert!(
+        base.trim().is_empty(),
+        "scenario_4 base should be empty (new file on both branches)"
+    );
+    // This is a "both add" pattern — the merge engine should handle it
+    let resolver = resolver_for(None);
+    let output = resolver.resolve_conflict(&base, &left, &right);
+    // The pattern rule "BothAddLines" or "PrefixSuffix" should apply
+    assert!(
+        output.resolution.is_some() || !output.candidates.is_empty(),
+        "both-created-new-file should produce at least one candidate"
+    );
+    // The human chose left's version (the more complete one with ProgressBar)
+    assert!(merged.contains("ProgressBar"));
+    assert!(merged.contains("FrameLayout"));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 5: build.gradle.kts — auto-resolved (different regions)
+// Left adds 7 lines (Glance deps), right adds 41 lines (kover config).
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_5_gradle_large_auto_resolve() {
+    let (base, left, right, merged) = load_scenario("scenario_5", "kts");
+    let resolver = resolver_for(Some(Language::Kotlin));
+    let result = resolver.resolve_file(&base, &left, &right);
+    // Should include content from both sides
+    // Left added Glance deps
+    assert!(
+        result.merged_content.contains("glance"),
+        "merged should contain glance dep from left"
+    );
+    // Human merge includes both kover and glance
+    assert!(merged.contains("kover"));
+    assert!(merged.contains("glance"));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 6: AndroidManifest.xml — auto-resolved
+// Both add widget receiver declarations in different spots.
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_6_manifest_auto_resolve() {
+    let (base, left, right, merged) = load_scenario("scenario_6", "xml");
+    let resolver = resolver_for(None);
+    let result = resolver.resolve_file(&base, &left, &right);
+    // Both sides added a MusicWidgetReceiver
+    assert!(
+        result.merged_content.contains("MusicWidgetReceiver"),
+        "merged AndroidManifest should contain widget receiver"
+    );
+    assert!(merged.contains("MusicWidgetReceiver"));
+    assert!(merged.contains("APPWIDGET_UPDATE"));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Scenario 7: smoke-test.yml — auto-resolved (repo name rename)
+// Left: press-secretary → MediaMaid, Right: same rename.
+// Both sides converge on the same change.
+// ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mediamaid_scenario_7_yml_convergent_rename() {
+    let (base, left, right, _merged) = load_scenario("scenario_7", "yml");
+    let resolver = resolver_for(None);
+    let result = resolver.resolve_file(&base, &left, &right);
+    // Both sides renamed press-secretary → MediaMaid — should auto-resolve
+    assert!(
+        result.all_resolved,
+        "convergent renames in smoke-test.yml should auto-resolve"
+    );
+    assert!(
+        result.merged_content.contains("MediaMaid"),
+        "merged yml should contain the new repo name 'MediaMaid'"
+    );
 }

@@ -1,0 +1,240 @@
+[
+  {
+    "id": "scenario_1",
+    "name": "MusicConverterScreen_real_conflict_merge_50a22e57",
+    "file": "app/src/main/java/ai/musicconverter/ui/MusicConverterScreen.kt",
+    "description": "REAL 3-way conflict (3 conflict regions). Merge of feature branch into master where both sides modified MusicConverterScreen.kt. Left adds styled song list, right adds Media3 player UI. Git merge-file produces 3 conflict markers.",
+    "conflict_type": "real_conflict",
+    "conflict_regions": 3,
+    "merge_commit": "50a22e57b0a406cef6326b6f28e4612ddb3450d5",
+    "merge_message": "Merge master into feature branch, resolve MusicConverterScreen conflict",
+    "refs": {
+      "base": "002321398ca3afcc335c9f2da2951f60538cef28",
+      "left": "edd93058036d",
+      "right": "6f9a959e4f7a",
+      "merged": "50a22e57b0a4"
+    },
+    "versions": {
+      "base": {
+        "lines": 703,
+        "size": 30925
+      },
+      "left": {
+        "lines": 717,
+        "size": 31622
+      },
+      "right": {
+        "lines": 806,
+        "size": 33185
+      },
+      "merged": {
+        "lines": 822,
+        "size": 33906
+      }
+    }
+  },
+  {
+    "id": "scenario_2",
+    "name": "build_gradle_kts_auto_resolve_merge_ca47f95a",
+    "file": "app/build.gradle.kts",
+    "description": "Auto-resolved conflict from merge ca47f95a. Both parents added different dependencies to the same gradle file in non-overlapping regions.",
+    "conflict_type": "auto_resolved",
+    "conflict_regions": 0,
+    "merge_commit": "ca47f95adec8",
+    "merge_message": "Merge remote-tracking branch 'origin/master'",
+    "refs": {
+      "base": "2c7c6b6b20e8",
+      "left": "644c8daa0d03",
+      "right": "35729bd07a89",
+      "merged": "ca47f95adec8"
+    },
+    "versions": {
+      "base": {
+        "lines": 98,
+        "size": 2773
+      },
+      "left": {
+        "lines": 102,
+        "size": 2922
+      },
+      "right": {
+        "lines": 102,
+        "size": 2927
+      },
+      "merged": {
+        "lines": 106,
+        "size": 3076
+      }
+    }
+  },
+  {
+    "id": "scenario_3",
+    "name": "MusicWidget_auto_resolve_merge_ca47f95a",
+    "file": "app/src/main/java/ai/musicconverter/widget/MusicWidget.kt",
+    "description": "Auto-resolved conflict from merge ca47f95a. Left adds an import, right restructures widget methods. Changes in different regions.",
+    "conflict_type": "auto_resolved",
+    "conflict_regions": 0,
+    "merge_commit": "ca47f95adec8",
+    "merge_message": "Merge remote-tracking branch 'origin/master'",
+    "refs": {
+      "base": "2c7c6b6b20e8",
+      "left": "644c8daa0d03",
+      "right": "35729bd07a89",
+      "merged": "ca47f95adec8"
+    },
+    "versions": {
+      "base": {
+        "lines": 147,
+        "size": 5118
+      },
+      "left": {
+        "lines": 148,
+        "size": 5160
+      },
+      "right": {
+        "lines": 146,
+        "size": 5032
+      },
+      "merged": {
+        "lines": 147,
+        "size": 5074
+      }
+    }
+  },
+  {
+    "id": "scenario_4",
+    "name": "glance_layout_real_conflict_merge_ca47f95a",
+    "file": "app/src/main/res/layout/glance_default_layout.xml",
+    "description": "REAL conflict from merge ca47f95a. Base file was empty (new file created on both branches). Left adds a full FrameLayout with ProgressBar, right adds a minimal self-closing FrameLayout. Git merge-file produces 1 conflict marker. Human chose left's version.",
+    "conflict_type": "real_conflict",
+    "conflict_regions": 1,
+    "merge_commit": "ca47f95adec8",
+    "merge_message": "Merge remote-tracking branch 'origin/master'",
+    "refs": {
+      "base": "2c7c6b6b20e8",
+      "left": "644c8daa0d03",
+      "right": "35729bd07a89",
+      "merged": "ca47f95adec8"
+    },
+    "versions": {
+      "base": {
+        "lines": 1,
+        "size": 0
+      },
+      "left": {
+        "lines": 14,
+        "size": 436
+      },
+      "right": {
+        "lines": 5,
+        "size": 195
+      },
+      "merged": {
+        "lines": 14,
+        "size": 436
+      }
+    }
+  },
+  {
+    "id": "scenario_5",
+    "name": "build_gradle_kts_auto_resolve_merge_d4cf3d6d",
+    "file": "app/build.gradle.kts",
+    "description": "Auto-resolved conflict from merge d4cf3d6d. Left adds 7 lines of dependencies, right adds 41 lines of dependencies. Both add to the same gradle file in non-overlapping regions.",
+    "conflict_type": "auto_resolved",
+    "conflict_regions": 0,
+    "merge_commit": "d4cf3d6d6161",
+    "merge_message": "Merge branch 'master' of https://github.com/maceip/MediaMaid",
+    "refs": {
+      "base": "2906b59c1316",
+      "left": "0f1304640ffd",
+      "right": "c77b3c037912",
+      "merged": "d4cf3d6d6161"
+    },
+    "versions": {
+      "base": {
+        "lines": 102,
+        "size": 2927
+      },
+      "left": {
+        "lines": 109,
+        "size": 3134
+      },
+      "right": {
+        "lines": 143,
+        "size": 4052
+      },
+      "merged": {
+        "lines": 150,
+        "size": 4259
+      }
+    }
+  },
+  {
+    "id": "scenario_6",
+    "name": "AndroidManifest_auto_resolve_merge_76e0e40c",
+    "file": "app/src/main/AndroidManifest.xml",
+    "description": "Auto-resolved conflict from merge 76e0e40c. Both sides add 12 lines each to AndroidManifest.xml - left adds service declarations, right adds provider configuration. Insertions in different locations.",
+    "conflict_type": "auto_resolved",
+    "conflict_regions": 0,
+    "merge_commit": "76e0e40cc698",
+    "merge_message": "Merge branch 'master' of https://github.com/maceip/MediaMaid",
+    "refs": {
+      "base": "de5f0ac7ed12",
+      "left": "008fe285f6ac",
+      "right": "2906b59c1316",
+      "merged": "76e0e40cc698"
+    },
+    "versions": {
+      "base": {
+        "lines": 72,
+        "size": 2957
+      },
+      "left": {
+        "lines": 84,
+        "size": 3372
+      },
+      "right": {
+        "lines": 84,
+        "size": 3407
+      },
+      "merged": {
+        "lines": 96,
+        "size": 3822
+      }
+    }
+  },
+  {
+    "id": "scenario_7",
+    "name": "smoke_test_yml_auto_resolve_merge_738c08d2",
+    "file": ".github/workflows/smoke-test.yml",
+    "description": "Auto-resolved conflict from merge 738c08d2 (PR#11). Both sides modify the smoke-test workflow - left changes 2 lines, right changes 3 lines. Changes in same file but different lines.",
+    "conflict_type": "auto_resolved",
+    "conflict_regions": 0,
+    "merge_commit": "738c08d239b3",
+    "merge_message": "Merge pull request #11 from maceip/claude/test-smoke-test-yaml-fBJcY",
+    "refs": {
+      "base": "65494f015360",
+      "left": "5f43252ba60c",
+      "right": "f1029717bef3",
+      "merged": "738c08d239b3"
+    },
+    "versions": {
+      "base": {
+        "lines": 92,
+        "size": 2633
+      },
+      "left": {
+        "lines": 92,
+        "size": 2621
+      },
+      "right": {
+        "lines": 92,
+        "size": 2621
+      },
+      "merged": {
+        "lines": 92,
+        "size": 2621
+      }
+    }
+  }
+]
