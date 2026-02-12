@@ -51,3 +51,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
+
+  wasm:
+    name: Build (wasm32-wasip1)
+    runs-on: ubuntu-latest
+    env:
+      WASI_SDK_VERSION: "25"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasi-sdk
+        run: |
+          curl -sLO https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz
+          tar xzf wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz
+          echo "WASI_SDK_PATH=$PWD/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> $GITHUB_ENV
+      - name: Build for wasm32-wasip1
+        run: |
+          export CC_wasm32_wasip1="${WASI_SDK_PATH}/bin/clang"
+          export AR_wasm32_wasip1="${WASI_SDK_PATH}/bin/llvm-ar"
+          export CXX_wasm32_wasip1="${WASI_SDK_PATH}/bin/clang++"
+          export CFLAGS_wasm32_wasip1="--sysroot=${WASI_SDK_PATH}/share/wasi-sysroot"
+          cargo build --target wasm32-wasip1 --release

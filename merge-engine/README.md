@@ -90,6 +90,33 @@ println!("All resolved: {}", result.all_resolved);
 println!("Merged:\n{}", result.merged_content);
 ```
 
+## Building for WASM (wasm32-wasip1)
+
+The crate compiles to `wasm32-wasip1` for use in WebAssembly runtimes like
+Wasmtime. Because tree-sitter grammars compile C/C++ via the `cc` crate, you
+need [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) installed:
+
+```sh
+# 1. Install wasi-sdk (v25+)
+curl -sLO https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz
+tar xzf wasi-sdk-25.0-x86_64-linux.tar.gz
+export WASI_SDK_PATH=$PWD/wasi-sdk-25.0-x86_64-linux
+
+# 2. Add the Rust target
+rustup target add wasm32-wasip1
+
+# 3. Build with the wasi-sdk toolchain
+CC_wasm32_wasip1=$WASI_SDK_PATH/bin/clang \
+AR_wasm32_wasip1=$WASI_SDK_PATH/bin/llvm-ar \
+CXX_wasm32_wasip1=$WASI_SDK_PATH/bin/clang++ \
+CFLAGS_wasm32_wasip1="--sysroot=$WASI_SDK_PATH/share/wasi-sysroot" \
+cargo build --target wasm32-wasip1 --release
+```
+
+**Important**: Do *not* enable tree-sitter's `wasm` Cargo feature — that feature
+embeds the Wasmtime runtime for loading grammar `.wasm` files at runtime, which
+is the opposite of what you want when compiling *to* WASM.
+
 ## Architecture
 
 ```
