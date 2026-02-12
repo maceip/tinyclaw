@@ -320,10 +320,10 @@ fn build_child_match_map<'a>(
 
     let mut result = HashMap::new();
     for bc in base_children {
-        if let Some(&other_id) = match_map.get(&bc.id())
-            && let Some(other_node) = other_by_id.get(&other_id)
-        {
-            result.insert(bc.id(), *other_node);
+        if let Some(&other_id) = match_map.get(&bc.id()) {
+            if let Some(other_node) = other_by_id.get(&other_id) {
+                result.insert(bc.id(), *other_node);
+            }
         }
     }
 
@@ -339,10 +339,10 @@ fn build_child_match_map<'a>(
             .filter(|oc| !matched_other.contains(&oc.id()))
             .filter(|oc| oc.kind() == bc.kind())
             .max_by_key(|oc| tree_similarity(bc, oc));
-        if let Some(matched) = best
-            && tree_similarity(bc, matched) > 0
-        {
-            result.insert(bc.id(), matched);
+        if let Some(matched) = best {
+            if tree_similarity(bc, matched) > 0 {
+                result.insert(bc.id(), matched);
+            }
         }
     }
 

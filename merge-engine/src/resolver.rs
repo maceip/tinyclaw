@@ -11,7 +11,7 @@
 //! The resolver stops at the first strategy that produces a resolution with
 //! sufficient confidence, or returns ranked candidates from all strategies.
 
-use crate::amalgamator::{AmalgamResult, amalgam_to_merge_result, amalgamate};
+use crate::amalgamator::{amalgam_to_merge_result, amalgamate, AmalgamResult};
 use crate::diff3;
 use crate::parser::{self, ParseError};
 use crate::patterns::PatternRegistry;
@@ -332,10 +332,8 @@ mod tests {
             "fn main() { let x = 1; let y = 3; }",
         );
         // Should attempt structured merge
-        assert!(
-            output
-                .strategies_tried
-                .contains(&ResolutionStrategy::StructuredMerge)
-        );
+        assert!(output
+            .strategies_tried
+            .contains(&ResolutionStrategy::StructuredMerge));
     }
 }

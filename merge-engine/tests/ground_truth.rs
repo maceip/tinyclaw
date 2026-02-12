@@ -578,11 +578,9 @@ fn ground_truth_pipeline_tries_all_strategies() {
         "fn foo() { let x = right; }",
     );
     // Pattern rules are always tried first
-    assert!(
-        output
-            .strategies_tried
-            .contains(&ResolutionStrategy::PatternRule)
-    );
+    assert!(output
+        .strategies_tried
+        .contains(&ResolutionStrategy::PatternRule));
     // Should have generated candidates from at least one strategy
     assert!(!output.candidates.is_empty());
     // If the whitespace pattern matched (which it does here since the structure
@@ -604,16 +602,12 @@ fn ground_truth_pipeline_reaches_search_fallback() {
         "entirely rewritten left side with different words gamma delta",
         "totally new right version with other terms epsilon zeta",
     );
-    assert!(
-        output
-            .strategies_tried
-            .contains(&ResolutionStrategy::PatternRule)
-    );
-    assert!(
-        output
-            .strategies_tried
-            .contains(&ResolutionStrategy::SearchBased)
-    );
+    assert!(output
+        .strategies_tried
+        .contains(&ResolutionStrategy::PatternRule));
+    assert!(output
+        .strategies_tried
+        .contains(&ResolutionStrategy::SearchBased));
     assert!(!output.candidates.is_empty());
 }
 
