@@ -8,30 +8,60 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
+import com.tinyclaw.ui.AgentInfo
+import com.tinyclaw.ui.AgentListPane
+import com.tinyclaw.ui.ChatDetailPane
+import com.tinyclaw.ui.ChatMessage
+import com.tinyclaw.ui.DetailPlaceholder
+import com.tinyclaw.ui.theme.TinyClawTheme
+import kotlinx.serialization.Serializable
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 
-class MainActivity : AppCompatActivity() {
+// Nav keys
+@Serializable
+private object AgentList : NavKey
 
-    private var serviceRunning = false
+@Serializable
+private data class AgentDetail(val agentId: String, val agentName: String) : NavKey
 
-    private lateinit var statusText: TextView
-    private lateinit var toggleButton: Button
-    private lateinit var modelSpinner: Spinner
-    private lateinit var agentSpinner: Spinner
-    private lateinit var teamSpinner: Spinner
-    private lateinit var portText: TextView
-    private lateinit var logText: TextView
-    private lateinit var logScroll: ScrollView
+class MainActivity : ComponentActivity() {
+
+    private val agents = mutableStateListOf<AgentInfo>()
+    private val chatMessages = mutableMapOf<String, MutableList<ChatMessage>>()
+    private val serviceRunning = mutableStateOf(false)
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -40,63 +70,25 @@ class MainActivity : AppCompatActivity() {
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val status = intent?.getStringExtra(TinyClawService.EXTRA_STATUS) ?: return
-            val error = intent.getStringExtra(TinyClawService.EXTRA_ERROR)
-
-            appendLog("Status: $status" + if (error != null) " ($error)" else "")
-
             when (status) {
-                "running" -> {
-                    serviceRunning = true
-                    updateUi()
-                }
-                "stopped", "error" -> {
-                    serviceRunning = false
-                    updateUi()
-                }
-                "starting" -> {
-                    statusText.text = getString(R.string.status_starting)
-                    toggleButton.isEnabled = false
-                }
+                "running" -> serviceRunning.value = true
+                "stopped", "error" -> serviceRunning.value = false
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.status_text)
-        toggleButton = findViewById(R.id.toggle_button)
-        modelSpinner = findViewById(R.id.model_spinner)
-        agentSpinner = findViewById(R.id.agent_spinner)
-        teamSpinner = findViewById(R.id.team_spinner)
-        portText = findViewById(R.id.port_text)
-        logText = findViewById(R.id.log_text)
-        logScroll = findViewById(R.id.log_scroll)
+        loadAgents()
+        requestNotificationPermissionIfNeeded()
 
-        val models = arrayOf(
-            "gemma3-1b",
-            "gemma-3n-e2b",
-            "gemma-3n-e4b",
-            "phi-4-mini",
-            "qwen2.5-1.5b"
-        )
-        modelSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, models)
-
-        loadAgentsAndTeams()
-
-        portText.text = getString(R.string.port_label, 8787)
-
-        toggleButton.setOnClickListener {
-            if (serviceRunning) {
-                stopTinyClaw()
-            } else {
-                startTinyClaw()
+        setContent {
+            TinyClawTheme {
+                TinyClawNavHost()
             }
         }
-
-        requestNotificationPermissionIfNeeded()
-        updateUi()
     }
 
     override fun onResume() {
@@ -105,7 +97,7 @@ class MainActivity : AppCompatActivity() {
             statusReceiver,
             IntentFilter(TinyClawService.ACTION_STATUS_CHANGED)
         )
-        loadAgentsAndTeams()
+        loadAgents()
     }
 
     override fun onPause() {
@@ -113,101 +105,154 @@ class MainActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(statusReceiver)
     }
 
-    /**
-     * Load agent and team lists from settings.json on disk.
-     * Falls back to a single "(none)" entry when there is no config yet.
-     */
-    private fun loadAgentsAndTeams() {
+    private fun loadAgents() {
         val settingsFile = File(filesDir, ".tinyclaw/settings.json")
-        val agentNames = mutableListOf(getString(R.string.none_selected))
-        val teamNames = mutableListOf(getString(R.string.none_selected))
+        val loaded = mutableListOf<AgentInfo>()
 
         if (settingsFile.exists()) {
             try {
                 val json = JSONObject(settingsFile.readText())
-
                 if (json.has("agents")) {
-                    val agents = json.getJSONObject("agents")
-                    for (key in agents.keys()) {
-                        val agent = agents.getJSONObject(key)
-                        val label = agent.optString("name", key)
-                        agentNames.add("$key ($label)")
+                    val agentsObj = json.getJSONObject("agents")
+                    for (key in agentsObj.keys()) {
+                        val agent = agentsObj.getJSONObject(key)
+                        loaded.add(
+                            AgentInfo(
+                                id = key,
+                                name = agent.optString("name", key),
+                                description = agent.optString("description", ""),
+                                model = agent.optString("model", "")
+                            )
+                        )
                     }
+                }
+            } catch (_: Exception) { }
+        }
+
+        // Always include demo agents so the UI isn't empty
+        if (loaded.isEmpty()) {
+            loaded.addAll(
+                listOf(
+                    AgentInfo("assistant", "Assistant", "General-purpose AI assistant", "gemma3-1b"),
+                    AgentInfo("coder", "Coder", "Code generation and review", "gemma-3n-e4b"),
+                    AgentInfo("researcher", "Researcher", "Web research and summarization", "phi-4-mini"),
+                    AgentInfo("writer", "Writer", "Creative and technical writing", "qwen2.5-1.5b"),
+                )
+            )
+        }
+
+        agents.clear()
+        agents.addAll(loaded)
+    }
+
+    private fun getMessagesForAgent(agentId: String): MutableList<ChatMessage> {
+        return chatMessages.getOrPut(agentId) { mutableListOf() }
+    }
+
+    private fun sendMessage(agentId: String, content: String) {
+        val messages = getMessagesForAgent(agentId)
+        val ts = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+
+        messages.add(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                content = content,
+                isFromAgent = false,
+                timestamp = ts
+            )
+        )
+
+        // Simulated agent response
+        messages.add(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                content = "Received: \"$content\". Agent processing is not yet connected to the backend service.",
+                isFromAgent = true,
+                timestamp = ts
+            )
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3AdaptiveApi::class)
+    @Composable
+    private fun TinyClawNavHost() {
+        val backStack = rememberNavBackStack(AgentList)
+
+        // Configure adaptive layout for foldables
+        val windowAdaptiveInfo = currentWindowAdaptiveInfo()
+        val directive = remember(windowAdaptiveInfo) {
+            calculatePaneScaffoldDirective(windowAdaptiveInfo)
+                .copy(horizontalPartitionSpacerSize = 0.dp)
+        }
+        val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>(directive = directive)
+
+        NavDisplay(
+            backStack = backStack,
+            onBack = { backStack.removeLastOrNull() },
+            sceneStrategy = listDetailStrategy,
+            transitionSpec = {
+                (slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(400)
+                ) + fadeIn(animationSpec = tween(300))) togetherWith
+                    (slideOutHorizontally(
+                        targetOffsetX = { -it / 3 },
+                        animationSpec = tween(400)
+                    ) + fadeOut(animationSpec = tween(200)))
+            },
+            popTransitionSpec = {
+                (slideInHorizontally(
+                    initialOffsetX = { -it },
+                    animationSpec = tween(400)
+                ) + fadeIn(animationSpec = tween(300))) togetherWith
+                    (slideOutHorizontally(
+                        targetOffsetX = { it / 3 },
+                        animationSpec = tween(400)
+                    ) + fadeOut(animationSpec = tween(200)))
+            },
+            predictivePopTransitionSpec = {
+                (scaleIn(
+                    initialScale = 0.9f,
+                    animationSpec = tween(400)
+                ) + fadeIn(animationSpec = tween(300))) togetherWith
+                    (scaleOut(
+                        targetScale = 0.85f,
+                        animationSpec = tween(400)
+                    ) + fadeOut(animationSpec = tween(300)))
+            },
+            entryProvider = entryProvider {
+                entry<AgentList>(
+                    metadata = ListDetailSceneStrategy.listPane(
+                        detailPlaceholder = {
+                            DetailPlaceholder()
+                        }
+                    )
+                ) {
+                    AgentListPane(
+                        agents = agents,
+                        selectedAgentId = null,
+                        onAgentClick = { agent ->
+                            backStack.add(AgentDetail(agent.id, agent.name))
+                        }
+                    )
                 }
 
-                if (json.has("teams")) {
-                    val teams = json.getJSONObject("teams")
-                    for (key in teams.keys()) {
-                        val team = teams.getJSONObject(key)
-                        val label = team.optString("name", key)
-                        teamNames.add("$key ($label)")
+                entry<AgentDetail>(
+                    metadata = ListDetailSceneStrategy.detailPane()
+                ) { detail ->
+                    val messages = remember(detail.agentId) {
+                        getMessagesForAgent(detail.agentId)
                     }
+                    ChatDetailPane(
+                        agentName = detail.agentName,
+                        messages = messages,
+                        onSendMessage = { content ->
+                            sendMessage(detail.agentId, content)
+                        }
+                    )
                 }
-            } catch (e: Exception) {
-                appendLog("Failed to parse settings: ${e.message}")
             }
-        }
-
-        agentSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, agentNames)
-        teamSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, teamNames)
-    }
-
-    private fun startTinyClaw() {
-        val selectedModel = modelSpinner.selectedItem as String
-        val selectedAgent = agentSpinner.selectedItem as String
-        val selectedTeam = teamSpinner.selectedItem as String
-
-        // Extract agent id from "id (Name)" format; pass empty string for "(none)"
-        val agentId = if (selectedAgent == getString(R.string.none_selected)) "" else selectedAgent.substringBefore(" ")
-        val teamId = if (selectedTeam == getString(R.string.none_selected)) "" else selectedTeam.substringBefore(" ")
-
-        val logParts = mutableListOf("Starting with model: $selectedModel")
-        if (agentId.isNotEmpty()) logParts.add("agent: $agentId")
-        if (teamId.isNotEmpty()) logParts.add("team: $teamId")
-        appendLog(logParts.joinToString(", "))
-
-        val intent = Intent(this, TinyClawService::class.java).apply {
-            putExtra(TinyClawService.EXTRA_MODEL_ID, selectedModel)
-            putExtra(TinyClawService.EXTRA_AGENT_ID, agentId)
-            putExtra(TinyClawService.EXTRA_TEAM_ID, teamId)
-        }
-        ContextCompat.startForegroundService(this, intent)
-        setSpinnersEnabled(false)
-    }
-
-    private fun stopTinyClaw() {
-        appendLog("Stopping...")
-        val intent = Intent(this, TinyClawService::class.java).apply {
-            action = TinyClawService.ACTION_STOP
-        }
-        startService(intent)
-    }
-
-    private fun updateUi() {
-        if (serviceRunning) {
-            statusText.text = getString(R.string.status_running)
-            toggleButton.text = getString(R.string.stop)
-            toggleButton.isEnabled = true
-            setSpinnersEnabled(false)
-        } else {
-            statusText.text = getString(R.string.status_stopped)
-            toggleButton.text = getString(R.string.start)
-            toggleButton.isEnabled = true
-            setSpinnersEnabled(true)
-        }
-    }
-
-    private fun setSpinnersEnabled(enabled: Boolean) {
-        modelSpinner.isEnabled = enabled
-        agentSpinner.isEnabled = enabled
-        teamSpinner.isEnabled = enabled
-    }
-
-    private fun appendLog(line: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-            .format(java.util.Date())
-        logText.append("[$ts] $line\n")
-        logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        )
     }
 
     private fun requestNotificationPermissionIfNeeded() {
