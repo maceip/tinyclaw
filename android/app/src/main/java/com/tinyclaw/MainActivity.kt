@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -45,10 +46,13 @@ import com.tinyclaw.ui.theme.TinyClawTheme
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.concurrent.thread
 
 // Nav keys
 @Serializable
@@ -58,6 +62,11 @@ private object AgentList : NavKey
 private data class AgentDetail(val agentId: String, val agentName: String) : NavKey
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val API_PORT = 8787
+    }
 
     private val agents = mutableStateListOf<AgentInfo>()
     private val chatMessages = mutableMapOf<String, MutableList<ChatMessage>>()
@@ -103,6 +112,24 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(statusReceiver)
+    }
+
+    private fun startService(modelId: String) {
+        val intent = Intent(this, TinyClawService::class.java).apply {
+            putExtra(TinyClawService.EXTRA_MODEL_ID, modelId)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun stopService() {
+        val intent = Intent(this, TinyClawService::class.java).apply {
+            action = TinyClawService.ACTION_STOP
+        }
+        startService(intent)
     }
 
     private fun loadAgents() {
@@ -153,6 +180,7 @@ class MainActivity : ComponentActivity() {
         val messages = getMessagesForAgent(agentId)
         val ts = SimpleDateFormat("HH:mm", Locale.US).format(Date())
 
+        // Add the user's message immediately
         messages.add(
             ChatMessage(
                 id = UUID.randomUUID().toString(),
@@ -162,15 +190,76 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        // Simulated agent response
-        messages.add(
-            ChatMessage(
-                id = UUID.randomUUID().toString(),
-                content = "Received: \"$content\". Agent processing is not yet connected to the backend service.",
-                isFromAgent = true,
-                timestamp = ts
+        if (!serviceRunning.value) {
+            messages.add(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    content = "Service is not running. Start the service first.",
+                    isFromAgent = true,
+                    timestamp = ts
+                )
             )
-        )
+            return
+        }
+
+        // Post to the local HTTP API on a background thread
+        thread {
+            try {
+                val url = URL("http://127.0.0.1:$API_PORT/v1/chat")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.connectTimeout = 5_000
+                conn.readTimeout = 130_000 // server-side polls up to 120s
+                conn.doOutput = true
+
+                val body = JSONObject().apply {
+                    put("message", content)
+                    put("agent", agentId)
+                    put("sender", "android-user")
+                    put("sender_id", "android")
+                }
+                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+
+                val responseCode = conn.responseCode
+                val responseBody = if (responseCode in 200..299) {
+                    conn.inputStream.bufferedReader().readText()
+                } else {
+                    conn.errorStream?.bufferedReader()?.readText() ?: "HTTP $responseCode"
+                }
+
+                val replyTs = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+                val replyText = try {
+                    JSONObject(responseBody).optString("message", responseBody)
+                } catch (_: Exception) {
+                    responseBody
+                }
+
+                runOnUiThread {
+                    messages.add(
+                        ChatMessage(
+                            id = UUID.randomUUID().toString(),
+                            content = replyText,
+                            isFromAgent = true,
+                            timestamp = replyTs
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send message to API", e)
+                val errTs = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+                runOnUiThread {
+                    messages.add(
+                        ChatMessage(
+                            id = UUID.randomUUID().toString(),
+                            content = "Error: ${e.localizedMessage ?: "Connection failed"}",
+                            isFromAgent = true,
+                            timestamp = errTs
+                        )
+                    )
+                }
+            }
+        }
     }
 
     @OptIn(ExperimentalMaterial3AdaptiveApi::class)
@@ -231,9 +320,12 @@ class MainActivity : ComponentActivity() {
                     AgentListPane(
                         agents = agents,
                         selectedAgentId = null,
+                        isServiceRunning = serviceRunning.value,
                         onAgentClick = { agent ->
                             backStack.add(AgentDetail(agent.id, agent.name))
-                        }
+                        },
+                        onStartService = { modelId -> startService(modelId) },
+                        onStopService = { stopService() }
                     )
                 }
 

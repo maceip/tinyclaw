@@ -20,10 +20,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -52,17 +55,53 @@ data class AgentInfo(
 fun AgentListPane(
     agents: List<AgentInfo>,
     selectedAgentId: String?,
+    isServiceRunning: Boolean,
     onAgentClick: (AgentInfo) -> Unit,
+    onStartService: (modelId: String) -> Unit,
+    onStopService: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         topBar = {
             LargeTopAppBar(
                 title = {
-                    Text(
-                        "Agents",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column {
+                        Text(
+                            "Agents",
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            if (isServiceRunning) "Service running" else "Service stopped",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isServiceRunning)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                actions = {
+                    FilledTonalButton(
+                        onClick = {
+                            if (isServiceRunning) {
+                                onStopService()
+                            } else {
+                                // Start with the first agent's model, or default
+                                val modelId = agents.firstOrNull()?.model?.ifEmpty { null }
+                                    ?: "gemma3-1b"
+                                onStartService(modelId)
+                            }
+                        },
+                        modifier = Modifier.padding(end = 12.dp)
+                    ) {
+                        Icon(
+                            if (isServiceRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                            contentDescription = if (isServiceRunning) "Stop" else "Start",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (isServiceRunning) "Stop" else "Start")
+                    }
                 },
                 colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
