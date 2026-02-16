@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 tinyclaw-core = { path = "../tinyclaw-core" }
-teloxide = { version = "0.13", features = ["macros"] }
+teloxide = { version = "0.13", default-features = false, features = ["macros", "ctrlc_handler", "rustls"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 dashmap = { workspace = true }
