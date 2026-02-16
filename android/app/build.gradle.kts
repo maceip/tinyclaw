@@ -52,23 +52,30 @@ dependencies {
 
 // Task to copy the Rust-built .so from cargo target into jniLibs.
 // Run: ./gradlew copyNativeLib (or it runs automatically before assembleDebug)
-tasks.register<Copy>("copyNativeLib") {
+val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs/arm64-v8a")
+
+tasks.register("copyNativeLib") {
     val cargoOutput = rootProject.projectDir.resolve(
         "../target/aarch64-linux-android/release/libtinyclaw_android.so"
     )
-    from(cargoOutput)
-    into(layout.projectDirectory.dir("src/main/jniLibs/arm64-v8a"))
-
-    doFirst {
-        if (!cargoOutput.exists()) {
+    outputs.dir(jniLibsDir)
+    doLast {
+        if (cargoOutput.exists()) {
+            copy {
+                from(cargoOutput)
+                into(jniLibsDir)
+            }
+        } else {
             logger.warn(
                 "Native library not found at $cargoOutput. " +
                 "Build with: cargo ndk -t arm64-v8a build --release -p tinyclaw-android"
             )
+            // Ensure the directory exists even without the .so
+            jniLibsDir.asFile.mkdirs()
         }
     }
 }
 
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("NativeLibs") }.configureEach {
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
     dependsOn("copyNativeLib")
 }
