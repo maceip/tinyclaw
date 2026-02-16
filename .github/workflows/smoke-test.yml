@@ -12,10 +12,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary: tinyclaw-cli
+            binary: tinyclaw
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary: tinyclaw-cli.exe
+            binary: tinyclaw.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -32,7 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build CLI
-        run: cargo build --release --target ${{ matrix.target }} -p tinyclaw-cli
+        run: cargo build --release --target ${{ matrix.target }} -p tinyclaw
 
       - name: Run workspace tests
         run: cargo test --workspace
@@ -40,7 +40,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: tinyclaw-cli-${{ matrix.target }}
+          name: tinyclaw-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
           retention-days: 7
 
