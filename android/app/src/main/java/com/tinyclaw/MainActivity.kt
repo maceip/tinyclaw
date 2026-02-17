@@ -26,6 +26,7 @@ import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,7 +42,14 @@ import com.tinyclaw.ui.AgentListPane
 import com.tinyclaw.ui.ChatDetailPane
 import com.tinyclaw.ui.ChatMessage
 import com.tinyclaw.ui.DetailPlaceholder
+import com.tinyclaw.ui.SettingsPane
 import com.tinyclaw.ui.theme.TinyClawTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
 import java.io.File
@@ -57,11 +65,15 @@ private object AgentList : NavKey
 @Serializable
 private data class AgentDetail(val agentId: String, val agentName: String) : NavKey
 
+@Serializable
+private object SettingsScreen : NavKey
+
 class MainActivity : ComponentActivity() {
 
     private val agents = mutableStateListOf<AgentInfo>()
     private val chatMessages = mutableMapOf<String, MutableList<ChatMessage>>()
     private val serviceRunning = mutableStateOf(false)
+    private var pollingJob: Job? = null
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -71,8 +83,14 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val status = intent?.getStringExtra(TinyClawService.EXTRA_STATUS) ?: return
             when (status) {
-                "running" -> serviceRunning.value = true
-                "stopped", "error" -> serviceRunning.value = false
+                "running" -> {
+                    serviceRunning.value = true
+                    startPolling()
+                }
+                "stopped", "error" -> {
+                    serviceRunning.value = false
+                    stopPolling()
+                }
             }
         }
     }
@@ -98,11 +116,52 @@ class MainActivity : ComponentActivity() {
             IntentFilter(TinyClawService.ACTION_STATUS_CHANGED)
         )
         loadAgents()
+        // Check if service is already running and start polling
+        val status = try {
+            TinyClawBridge.getStatus()
+        } catch (_: UnsatisfiedLinkError) {
+            null
+        }
+        if (status?.running == true) {
+            serviceRunning.value = true
+            startPolling()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(statusReceiver)
+        stopPolling()
+    }
+
+    private fun startPolling() {
+        if (pollingJob?.isActive == true) return
+        pollingJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                try {
+                    val responses = TinyClawBridge.pollResponses()
+                    for (response in responses) {
+                        val agentId = response.agent ?: "unknown"
+                        val messages = getMessagesForAgent(agentId)
+                        val ts = SimpleDateFormat("HH:mm", Locale.US).format(Date(response.timestamp))
+                        messages.add(
+                            ChatMessage(
+                                id = response.messageId,
+                                content = response.message,
+                                isFromAgent = true,
+                                timestamp = ts
+                            )
+                        )
+                    }
+                } catch (_: Exception) { }
+                delay(1000)
+            }
+        }
+    }
+
+    private fun stopPolling() {
+        pollingJob?.cancel()
+        pollingJob = null
     }
 
     private fun loadAgents() {
@@ -162,15 +221,35 @@ class MainActivity : ComponentActivity() {
             )
         )
 
-        // Simulated agent response
-        messages.add(
-            ChatMessage(
-                id = UUID.randomUUID().toString(),
-                content = "Received: \"$content\". Agent processing is not yet connected to the backend service.",
-                isFromAgent = true,
-                timestamp = ts
+        // Send via JNI bridge if service is running, otherwise show offline message
+        if (serviceRunning.value) {
+            val result = try {
+                TinyClawBridge.sendMessage(agentId, content)
+            } catch (_: UnsatisfiedLinkError) {
+                TinyClawBridge.SendResult(messageId = null, error = "Native library not loaded")
+            }
+
+            if (result.error != null) {
+                messages.add(
+                    ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        content = "Failed to send: ${result.error}",
+                        isFromAgent = true,
+                        timestamp = ts
+                    )
+                )
+            }
+            // Response will arrive via polling
+        } else {
+            messages.add(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    content = "Service is not running. Start the service to send messages.",
+                    isFromAgent = true,
+                    timestamp = ts
+                )
             )
-        )
+        }
     }
 
     @OptIn(ExperimentalMaterial3AdaptiveApi::class)
@@ -178,7 +257,7 @@ class MainActivity : ComponentActivity() {
     private fun TinyClawNavHost() {
         val backStack = rememberNavBackStack(AgentList)
 
-        // Configure adaptive layout for foldables
+        // Configure adaptive layout for foldables — no gap between panes
         val windowAdaptiveInfo = currentWindowAdaptiveInfo()
         val directive = remember(windowAdaptiveInfo) {
             calculatePaneScaffoldDirective(windowAdaptiveInfo)
@@ -233,6 +312,9 @@ class MainActivity : ComponentActivity() {
                         selectedAgentId = null,
                         onAgentClick = { agent ->
                             backStack.add(AgentDetail(agent.id, agent.name))
+                        },
+                        onSettingsClick = {
+                            backStack.add(SettingsScreen)
                         }
                     )
                 }
@@ -249,6 +331,17 @@ class MainActivity : ComponentActivity() {
                         onSendMessage = { content ->
                             sendMessage(detail.agentId, content)
                         }
+                    )
+                }
+
+                entry<SettingsScreen>(
+                    metadata = ListDetailSceneStrategy.detailPane()
+                ) {
+                    DisposableEffect(Unit) {
+                        onDispose { loadAgents() }
+                    }
+                    SettingsPane(
+                        onBack = { backStack.removeLastOrNull() }
                     )
                 }
             }

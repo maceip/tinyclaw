@@ -5,8 +5,10 @@ members = [
     "crates/tinyclaw-channel-discord",
     "crates/tinyclaw-channel-telegram",
     "crates/tinyclaw-http",
+    "crates/tinyclaw-channel-email",
     "crates/tinyclaw-cli",
     "crates/tinyclaw-android",
+    "crates/tinyclaw-tui",
 ]
 exclude = ["merge-engine"]
 resolver = "2"

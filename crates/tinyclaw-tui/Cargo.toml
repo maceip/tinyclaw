@@ -1,0 +1,12 @@
+[package]
+name = "tinyclaw-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tinyclaw-core = { path = "../tinyclaw-core" }
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }

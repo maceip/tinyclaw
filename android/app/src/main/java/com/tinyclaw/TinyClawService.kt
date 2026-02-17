@@ -17,6 +17,7 @@ class TinyClawService : Service() {
         const val EXTRA_MODEL_ID = "com.tinyclaw.EXTRA_MODEL_ID"
         const val EXTRA_AGENT_ID = "com.tinyclaw.EXTRA_AGENT_ID"
         const val EXTRA_TEAM_ID = "com.tinyclaw.EXTRA_TEAM_ID"
+        const val EXTRA_CONFIG_JSON = "com.tinyclaw.EXTRA_CONFIG_JSON"
         const val ACTION_STATUS_CHANGED = "com.tinyclaw.STATUS_CHANGED"
         const val EXTRA_STATUS = "status"
         const val EXTRA_ERROR = "error"
@@ -27,6 +28,7 @@ class TinyClawService : Service() {
     }
 
     private external fun nativeStart(dataDir: String, modelId: String): Int
+    private external fun nativeStartWithConfig(configJson: String): Int
     private external fun nativeStop(): Int
 
     private var currentModel: String = "gemma3-1b"
@@ -48,13 +50,19 @@ class TinyClawService : Service() {
         currentModel = intent?.getStringExtra(EXTRA_MODEL_ID) ?: "gemma3-1b"
         currentAgent = intent?.getStringExtra(EXTRA_AGENT_ID) ?: ""
         currentTeam = intent?.getStringExtra(EXTRA_TEAM_ID) ?: ""
+        val configJson = intent?.getStringExtra(EXTRA_CONFIG_JSON)
 
         Log.i(TAG, "Starting with model: $currentModel, agent: $currentAgent, team: $currentTeam")
 
         startForeground(1, buildNotification())
         broadcastStatus("starting")
 
-        val result = nativeStart(filesDir.absolutePath, currentModel)
+        val result = if (configJson != null) {
+            nativeStartWithConfig(configJson)
+        } else {
+            nativeStart(filesDir.absolutePath, currentModel)
+        }
+
         if (result != 0) {
             Log.e(TAG, "nativeStart returned error code: $result")
             broadcastStatus("error", "Native start failed with code $result")

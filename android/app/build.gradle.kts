@@ -57,7 +57,7 @@ dependencies {
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 
     // Compose BOM
-    implementation(platform("androidx.compose:compose-bom:2025.05.00"))
+    implementation(platform("androidx.compose:compose-bom:2025.11.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -69,15 +69,15 @@ dependencies {
     // Kotlinx Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // Navigation3
-    implementation("androidx.navigation3:navigation3-runtime:1.0.0-alpha10")
-    implementation("androidx.navigation3:navigation3-ui:1.0.0-alpha10")
+    // Navigation3 (stable)
+    implementation("androidx.navigation3:navigation3-runtime:1.0.0")
+    implementation("androidx.navigation3:navigation3-ui:1.0.0")
 
-    // Material3 Adaptive
-    implementation("androidx.compose.material3.adaptive:adaptive:1.1.0")
-    implementation("androidx.compose.material3.adaptive:adaptive-layout:1.1.0")
-    implementation("androidx.compose.material3.adaptive:adaptive-navigation:1.1.0")
-    implementation("androidx.compose.material3.adaptive:adaptive-navigation3:1.0.0-alpha03")
+    // Material3 Adaptive + Nav3 integration
+    implementation("androidx.compose.material3.adaptive:adaptive:1.3.0-alpha03")
+    implementation("androidx.compose.material3.adaptive:adaptive-layout:1.3.0-alpha03")
+    implementation("androidx.compose.material3.adaptive:adaptive-navigation:1.3.0-alpha03")
+    implementation("androidx.compose.material3.adaptive:adaptive-navigation3:1.3.0-alpha03")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

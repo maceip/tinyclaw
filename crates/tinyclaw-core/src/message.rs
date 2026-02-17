@@ -11,6 +11,7 @@ pub enum Channel {
     Http,
     Manual,
     Android,
+    Email,
 }
 
 impl Channel {
@@ -23,6 +24,7 @@ impl Channel {
             Channel::Http => "http",
             Channel::Manual => "manual",
             Channel::Android => "android",
+            Channel::Email => "email",
         }
     }
 }
@@ -107,4 +109,32 @@ pub struct TeamConfig {
     pub agents: Vec<String>,
     #[serde(default)]
     pub leader_agent: String,
+    /// Team strategy: "leader-routes", "chain", or "fan-out".
+    #[serde(default = "default_team_strategy")]
+    pub strategy: String,
+}
+
+fn default_team_strategy() -> String {
+    "leader-routes".into()
+}
+
+/// Team collaboration strategies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeamStrategy {
+    /// Leader picks which member handles the message.
+    LeaderRoutes,
+    /// Members process sequentially, each seeing previous output.
+    Chain,
+    /// All members process in parallel, responses aggregated.
+    FanOut,
+}
+
+impl TeamStrategy {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "chain" => Self::Chain,
+            "fan-out" | "fanout" => Self::FanOut,
+            _ => Self::LeaderRoutes,
+        }
+    }
 }

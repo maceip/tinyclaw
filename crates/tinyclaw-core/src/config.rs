@@ -21,6 +21,12 @@ pub struct Settings {
     /// Named teams — matches upstream `settings.teams`.
     #[serde(default)]
     pub teams: HashMap<String, TeamConfig>,
+    /// Whether pairing is required for incoming messages.
+    #[serde(default)]
+    pub pairing_enabled: bool,
+    /// Provider configuration.
+    #[serde(default)]
+    pub providers: ProviderSettings,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -33,6 +39,8 @@ pub struct ChannelSettings {
     pub telegram: TelegramConfig,
     #[serde(default)]
     pub whatsapp: WhatsappConfig,
+    #[serde(default)]
+    pub email: EmailConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -49,6 +57,62 @@ pub struct TelegramConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WhatsappConfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailConfig {
+    /// IMAP server host (e.g. imap.gmail.com)
+    #[serde(default)]
+    pub imap_host: String,
+    /// IMAP server port (default 993 for TLS)
+    #[serde(default = "default_imap_port")]
+    pub imap_port: u16,
+    /// SMTP server host (e.g. smtp.gmail.com)
+    #[serde(default)]
+    pub smtp_host: String,
+    /// SMTP server port (default 587 for STARTTLS)
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+    /// Email account username
+    #[serde(default)]
+    pub username: String,
+    /// Email account password or app-specific password
+    #[serde(default)]
+    pub password: String,
+    /// Mailbox to monitor (default INBOX)
+    #[serde(default = "default_mailbox")]
+    pub mailbox: String,
+    /// Poll interval in seconds (default 30)
+    #[serde(default = "default_email_poll_interval")]
+    pub poll_interval: u64,
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            imap_host: String::new(),
+            imap_port: default_imap_port(),
+            smtp_host: String::new(),
+            smtp_port: default_smtp_port(),
+            username: String::new(),
+            password: String::new(),
+            mailbox: default_mailbox(),
+            poll_interval: default_email_poll_interval(),
+        }
+    }
+}
+
+fn default_imap_port() -> u16 {
+    993
+}
+fn default_smtp_port() -> u16 {
+    587
+}
+fn default_mailbox() -> String {
+    "INBOX".into()
+}
+fn default_email_poll_interval() -> u64 {
+    30
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSettings {
@@ -161,6 +225,28 @@ fn default_relay() -> String {
 }
 fn default_heartbeat_interval() -> u64 {
     3600
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderSettings {
+    #[serde(default = "default_provider")]
+    pub default_provider: String,
+    /// Path to `claude` CLI binary.
+    #[serde(default)]
+    pub anthropic_cli_path: Option<String>,
+    /// Path to `codex` CLI binary.
+    #[serde(default)]
+    pub openai_cli_path: Option<String>,
+}
+
+impl Default for ProviderSettings {
+    fn default() -> Self {
+        Self {
+            default_provider: default_provider(),
+            anthropic_cli_path: None,
+            openai_cli_path: None,
+        }
+    }
 }
 
 impl Settings {

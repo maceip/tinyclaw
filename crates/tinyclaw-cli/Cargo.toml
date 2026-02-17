@@ -12,7 +12,9 @@ tinyclaw-core = { path = "../tinyclaw-core" }
 tinyclaw-inference = { path = "../tinyclaw-inference" }
 tinyclaw-channel-discord = { path = "../tinyclaw-channel-discord", optional = true }
 tinyclaw-channel-telegram = { path = "../tinyclaw-channel-telegram", optional = true }
+tinyclaw-channel-email = { path = "../tinyclaw-channel-email", optional = true }
 tinyclaw-http = { path = "../tinyclaw-http", optional = true }
+tinyclaw-tui = { path = "../tinyclaw-tui" }
 
 clap = { version = "4", features = ["derive"] }
 dialoguer = "0.11"
@@ -24,7 +26,8 @@ anyhow = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["discord", "telegram", "http"]
+default = ["discord", "telegram", "email", "http"]
 discord = ["dep:tinyclaw-channel-discord"]
 telegram = ["dep:tinyclaw-channel-telegram"]
+email = ["dep:tinyclaw-channel-email"]
 http = ["dep:tinyclaw-http"]

@@ -1,0 +1,16 @@
+[package]
+name = "tinyclaw-channel-email"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tinyclaw-core = { path = "../tinyclaw-core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+imap = "2"
+native-tls = "0.2"
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-native-tls", "builder"] }
+mailparse = "0.15"

@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tinyclaw_core::channel::{generate_message_id, now_millis, ChannelClient};
 use tinyclaw_core::config::Settings;
+use tinyclaw_core::events::EventBus;
 use tinyclaw_core::logging::init_logging;
-use tinyclaw_core::message::{Channel, IncomingMessage};
+use tinyclaw_core::message::{AgentConfig, Channel, IncomingMessage, TeamConfig};
 use tinyclaw_core::queue::QueueDir;
+use tokio::sync::Mutex;
 
 #[derive(Parser)]
 #[command(
@@ -52,6 +54,82 @@ enum Commands {
     Bookmarklet,
     /// Generate platform service configuration (systemd/launchd)
     InstallService,
+    /// Manage sender pairing
+    Pair {
+        #[command(subcommand)]
+        action: PairAction,
+    },
+    /// Manage inference providers
+    Provider {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
+    /// Manage agents
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+    /// Manage teams
+    Team {
+        #[command(subcommand)]
+        action: TeamAction,
+    },
+    /// Launch the TUI dashboard
+    Dashboard,
+}
+
+#[derive(Subcommand)]
+enum PairAction {
+    /// List all paired senders
+    List,
+    /// Approve a pairing code
+    Approve { code: String },
+    /// Revoke a paired sender
+    Revoke { sender_id: String },
+}
+
+#[derive(Subcommand)]
+enum ProviderAction {
+    /// List available providers
+    List,
+    /// Set the default provider
+    SetDefault { name: String },
+}
+
+#[derive(Subcommand)]
+enum AgentAction {
+    /// List configured agents
+    List,
+    /// Add a new agent
+    Add {
+        id: String,
+        name: String,
+        #[arg(long, default_value = "anthropic")]
+        provider: String,
+        #[arg(long, default_value = "sonnet")]
+        model: String,
+    },
+    /// Remove an agent
+    Remove { id: String },
+}
+
+#[derive(Subcommand)]
+enum TeamAction {
+    /// List configured teams
+    List,
+    /// Add a new team
+    Add {
+        id: String,
+        name: String,
+        #[arg(long)]
+        leader: String,
+        #[arg(long, value_delimiter = ',')]
+        members: Vec<String>,
+        #[arg(long, default_value = "leader-routes")]
+        strategy: String,
+    },
+    /// Remove a team
+    Remove { id: String },
 }
 
 fn data_dir(cli: &Cli) -> PathBuf {
@@ -77,6 +155,11 @@ async fn main() -> anyhow::Result<()> {
         Commands::Models => cmd_models().await,
         Commands::Bookmarklet => cmd_bookmarklet(&cli).await,
         Commands::InstallService => cmd_install_service(&cli).await,
+        Commands::Pair { action } => cmd_pair(&cli, action).await,
+        Commands::Provider { action } => cmd_provider(&cli, action).await,
+        Commands::Agent { action } => cmd_agent(&cli, action).await,
+        Commands::Team { action } => cmd_team(&cli, action).await,
+        Commands::Dashboard => cmd_dashboard(&cli).await,
     }
 }
 
@@ -112,13 +195,38 @@ async fn cmd_start(cli: &Cli) -> anyhow::Result<()> {
         .await?,
     );
 
-    // Spawn queue processor
-    tokio::spawn(tinyclaw_inference::run_queue_processor(
-        queue.clone(),
-        engine.clone(),
-        dir.clone(),
-        shutdown_tx.subscribe(),
-    ));
+    // Build provider registry
+    let server_url = "http://127.0.0.1:18787";
+    let registry = tinyclaw_inference::ProviderRegistry::build_default(
+        &settings.providers.default_provider,
+        server_url,
+        settings.providers.anthropic_cli_path.clone(),
+        settings.providers.openai_cli_path.clone(),
+    );
+    let registry = Arc::new(Mutex::new(registry));
+
+    // Event bus for TUI / logging
+    let event_bus = EventBus::new(256);
+
+    // Spawn queue processor with all features
+    let q = queue.clone();
+    let e = engine.clone();
+    let d = dir.clone();
+    let rx = shutdown_tx.subscribe();
+    let pr = Some(registry.clone());
+    let pe = settings.pairing_enabled;
+    let agents = settings.agents.clone();
+    let teams = settings.teams.clone();
+    let eb = Some(event_bus.clone());
+    tokio::spawn(async move {
+        if let Err(err) = tinyclaw_inference::processor::run_queue_processor_full(
+            q, e, d, rx, pr, pe, agents, teams, eb,
+        )
+        .await
+        {
+            tracing::error!(error = %err, "Queue processor error");
+        }
+    });
 
     // Spawn enabled channels
     for channel_name in &settings.channels.enabled {
@@ -159,6 +267,24 @@ async fn cmd_start(cli: &Cli) -> anyhow::Result<()> {
                 });
                 tracing::info!("Telegram channel started");
             }
+            #[cfg(feature = "email")]
+            "email" => {
+                if settings.channels.email.imap_host.is_empty() {
+                    tracing::warn!("Email enabled but no IMAP host configured");
+                    continue;
+                }
+                let client = Arc::new(tinyclaw_channel_email::EmailClient::new(
+                    settings.channels.email.clone(),
+                ));
+                let q = queue.clone();
+                let rx = shutdown_tx.subscribe();
+                tokio::spawn(async move {
+                    if let Err(e) = client.start(q, rx).await {
+                        tracing::error!(error = %e, "Email client error");
+                    }
+                });
+                tracing::info!("Email channel started");
+            }
             other => {
                 tracing::warn!("Unknown or disabled channel: {}", other);
             }
@@ -196,6 +322,16 @@ async fn cmd_start(cli: &Cli) -> anyhow::Result<()> {
         "Model: {} ({})",
         settings.models.local.model, settings.models.local.backend
     );
+    println!("Provider: {}", settings.providers.default_provider);
+    if settings.pairing_enabled {
+        println!("Pairing: enabled");
+    }
+    if !settings.agents.is_empty() {
+        println!("Agents: {:?}", settings.agents.keys().collect::<Vec<_>>());
+    }
+    if !settings.teams.is_empty() {
+        println!("Teams: {:?}", settings.teams.keys().collect::<Vec<_>>());
+    }
     if settings.http.enabled {
         println!("HTTP API: http://0.0.0.0:{}", settings.http.port);
     }
@@ -268,7 +404,7 @@ async fn cmd_setup(cli: &Cli) -> anyhow::Result<()> {
     println!();
 
     // Channel selection
-    let channels = vec!["telegram", "discord"];
+    let channels = vec!["telegram", "discord", "email"];
     let mut enabled = Vec::new();
 
     for ch in &channels {
@@ -291,6 +427,7 @@ async fn cmd_setup(cli: &Cli) -> anyhow::Result<()> {
     // Collect tokens
     let mut discord_token = String::new();
     let mut telegram_token = String::new();
+    let mut email_config = tinyclaw_core::config::EmailConfig::default();
 
     if enabled.contains(&"discord".to_string()) {
         println!();
@@ -307,6 +444,35 @@ async fn cmd_setup(cli: &Cli) -> anyhow::Result<()> {
         println!("(Create a bot via @BotFather on Telegram)");
         telegram_token = dialoguer::Input::<String>::new()
             .with_prompt("Token")
+            .interact_text()?;
+    }
+
+    if enabled.contains(&"email".to_string()) {
+        println!();
+        println!("Email channel configuration:");
+        email_config.imap_host = dialoguer::Input::<String>::new()
+            .with_prompt("IMAP host (e.g. imap.gmail.com)")
+            .interact_text()?;
+        email_config.imap_port = dialoguer::Input::<u16>::new()
+            .with_prompt("IMAP port")
+            .default(993)
+            .interact_text()?;
+        email_config.smtp_host = dialoguer::Input::<String>::new()
+            .with_prompt("SMTP host (e.g. smtp.gmail.com)")
+            .interact_text()?;
+        email_config.smtp_port = dialoguer::Input::<u16>::new()
+            .with_prompt("SMTP port")
+            .default(587)
+            .interact_text()?;
+        email_config.username = dialoguer::Input::<String>::new()
+            .with_prompt("Email address")
+            .interact_text()?;
+        email_config.password = dialoguer::Input::<String>::new()
+            .with_prompt("Password (or app password)")
+            .interact_text()?;
+        email_config.poll_interval = dialoguer::Input::<u64>::new()
+            .with_prompt("Poll interval (seconds)")
+            .default(30)
             .interact_text()?;
     }
 
@@ -367,6 +533,7 @@ async fn cmd_setup(cli: &Cli) -> anyhow::Result<()> {
                 bot_token: telegram_token,
             },
             whatsapp: Default::default(),
+            email: email_config,
         },
         models: tinyclaw_core::config::ModelSettings {
             provider: "local".to_string(),
@@ -387,6 +554,8 @@ async fn cmd_setup(cli: &Cli) -> anyhow::Result<()> {
         freehold: Default::default(),
         agents: Default::default(),
         teams: Default::default(),
+        pairing_enabled: false,
+        providers: Default::default(),
     };
 
     settings.save(&settings_path(cli))?;
@@ -413,6 +582,14 @@ async fn cmd_status(cli: &Cli) -> anyhow::Result<()> {
             println!("  Backend: {}", settings.models.local.backend);
             println!("  Channels: {:?}", settings.channels.enabled);
             println!("  Heartbeat: {}s", settings.monitoring.heartbeat_interval);
+            println!("  Default Provider: {}", settings.providers.default_provider);
+            println!("  Pairing: {}", if settings.pairing_enabled { "enabled" } else { "disabled" });
+            if !settings.agents.is_empty() {
+                println!("  Agents: {:?}", settings.agents.keys().collect::<Vec<_>>());
+            }
+            if !settings.teams.is_empty() {
+                println!("  Teams: {:?}", settings.teams.keys().collect::<Vec<_>>());
+            }
             if settings.http.enabled {
                 println!("  HTTP API: port {}", settings.http.port);
             }
@@ -691,4 +868,200 @@ WantedBy=multi-user.target
     }
 
     Ok(())
+}
+
+// ─── Pairing commands ────────────────────────────────────────────────────────
+
+async fn cmd_pair(cli: &Cli, action: &PairAction) -> anyhow::Result<()> {
+    let dir = data_dir(cli);
+
+    match action {
+        PairAction::List => {
+            let state = tinyclaw_core::pairing::load_state(&dir);
+            if state.paired.is_empty() && state.pending.is_empty() {
+                println!("No paired senders.");
+            } else {
+                if !state.paired.is_empty() {
+                    println!("Paired senders:");
+                    for (id, info) in &state.paired {
+                        println!("  {} (code: {}, paired at: {})", id, info.code, info.paired_at);
+                    }
+                }
+                if !state.pending.is_empty() {
+                    println!();
+                    println!("Pending approvals:");
+                    for (code, sender_id) in &state.pending {
+                        println!("  {} -> {}", code, sender_id);
+                    }
+                }
+            }
+        }
+        PairAction::Approve { code } => {
+            let mut state = tinyclaw_core::pairing::load_state(&dir);
+            match tinyclaw_core::pairing::approve_pairing_code(&mut state, code, &dir) {
+                Ok(sender_id) => println!("Approved sender: {}", sender_id),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
+        PairAction::Revoke { sender_id } => {
+            let mut state = tinyclaw_core::pairing::load_state(&dir);
+            match tinyclaw_core::pairing::revoke_sender(&mut state, sender_id, &dir) {
+                Ok(()) => println!("Revoked sender: {}", sender_id),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Provider commands ───────────────────────────────────────────────────────
+
+async fn cmd_provider(cli: &Cli, action: &ProviderAction) -> anyhow::Result<()> {
+    match action {
+        ProviderAction::List => {
+            let settings = Settings::load(&settings_path(cli))?;
+            println!("Available providers:");
+            println!("  local      - LiteRT-LM local inference");
+            println!("  anthropic  - Anthropic Claude (via claude CLI)");
+            println!("  openai     - OpenAI (via codex CLI)");
+            println!();
+            println!("Default: {}", settings.providers.default_provider);
+        }
+        ProviderAction::SetDefault { name } => {
+            let valid = ["local", "anthropic", "openai"];
+            if !valid.contains(&name.as_str()) {
+                eprintln!("Unknown provider: {}. Valid: {:?}", name, valid);
+                std::process::exit(1);
+            }
+            let mut settings = Settings::load(&settings_path(cli))?;
+            settings.providers.default_provider = name.clone();
+            settings.save(&settings_path(cli))?;
+            println!("Default provider set to: {}", name);
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Agent commands ──────────────────────────────────────────────────────────
+
+async fn cmd_agent(cli: &Cli, action: &AgentAction) -> anyhow::Result<()> {
+    let path = settings_path(cli);
+
+    match action {
+        AgentAction::List => {
+            let settings = Settings::load(&path)?;
+            if settings.agents.is_empty() {
+                println!("No agents configured.");
+            } else {
+                println!("Agents:");
+                for (id, agent) in &settings.agents {
+                    println!(
+                        "  {} - {} (provider: {}, model: {})",
+                        id, agent.name, agent.provider, agent.model
+                    );
+                }
+            }
+        }
+        AgentAction::Add {
+            id,
+            name,
+            provider,
+            model,
+        } => {
+            let mut settings = Settings::load(&path)?;
+            settings.agents.insert(
+                id.clone(),
+                AgentConfig {
+                    name: name.clone(),
+                    provider: provider.clone(),
+                    model: model.clone(),
+                    working_directory: String::new(),
+                },
+            );
+            settings.save(&path)?;
+            println!("Agent '{}' added.", id);
+        }
+        AgentAction::Remove { id } => {
+            let mut settings = Settings::load(&path)?;
+            if settings.agents.remove(id).is_some() {
+                settings.save(&path)?;
+                println!("Agent '{}' removed.", id);
+            } else {
+                eprintln!("Agent '{}' not found.", id);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Team commands ───────────────────────────────────────────────────────────
+
+async fn cmd_team(cli: &Cli, action: &TeamAction) -> anyhow::Result<()> {
+    let path = settings_path(cli);
+
+    match action {
+        TeamAction::List => {
+            let settings = Settings::load(&path)?;
+            if settings.teams.is_empty() {
+                println!("No teams configured.");
+            } else {
+                println!("Teams:");
+                for (id, team) in &settings.teams {
+                    println!(
+                        "  {} - {} (leader: {}, members: {:?}, strategy: {})",
+                        id, team.name, team.leader_agent, team.agents, team.strategy
+                    );
+                }
+            }
+        }
+        TeamAction::Add {
+            id,
+            name,
+            leader,
+            members,
+            strategy,
+        } => {
+            let mut settings = Settings::load(&path)?;
+            settings.teams.insert(
+                id.clone(),
+                TeamConfig {
+                    name: name.clone(),
+                    agents: members.clone(),
+                    leader_agent: leader.clone(),
+                    strategy: strategy.clone(),
+                },
+            );
+            settings.save(&path)?;
+            println!("Team '{}' added.", id);
+        }
+        TeamAction::Remove { id } => {
+            let mut settings = Settings::load(&path)?;
+            if settings.teams.remove(id).is_some() {
+                settings.save(&path)?;
+                println!("Team '{}' removed.", id);
+            } else {
+                eprintln!("Team '{}' not found.", id);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Dashboard command ───────────────────────────────────────────────────────
+
+async fn cmd_dashboard(cli: &Cli) -> anyhow::Result<()> {
+    let _settings = match Settings::load(&settings_path(cli)) {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!("No configuration found. Run 'tinyclaw setup' first.");
+            std::process::exit(1);
+        }
+    };
+
+    let event_bus = EventBus::new(256);
+    tinyclaw_tui::run_dashboard(event_bus).await
 }
